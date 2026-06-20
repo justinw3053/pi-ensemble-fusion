@@ -33,8 +33,8 @@ function saveToWorkspace(text: string, cwd: string) {
     } else {
       writeFileSync(gitignorePath, `${filename}\n`, "utf-8");
     }
-  } catch (e) {
-    // Ignore workspace saving errors silently
+  } catch (e: any) {
+    console.error(`[Ensemble Save Error]: ${e.message}`);
   }
 }
 
