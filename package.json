@@ -1,0 +1,21 @@
+{
+  "name": "pi-ensemble-fusion",
+  "version": "1.0.0",
+  "description": "A high-performance Mixture-of-Agents (MoA) ensemble pipeline extension for the Pi Coding Agent, featuring parallel local generation and cloud synthesis.",
+  "main": "ensemble.ts",
+  "keywords": [
+    "pi-agent",
+    "mixture-of-agents",
+    "moa",
+    "ollama",
+    "gemini",
+    "ensemble",
+    "fusion"
+  ],
+  "author": "Justin",
+  "license": "MIT",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.79.0",
+    "@sinclair/typebox": "^0.32.0"
+  }
+}
