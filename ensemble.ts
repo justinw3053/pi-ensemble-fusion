@@ -19,7 +19,7 @@ function copyToClipboard(text: string) {
 // Helper to save result to workspace and add to gitignore
 function saveToWorkspace(text: string, cwd: string) {
   try {
-    const filename = ".ensemble_last_response.md";
+    const filename = "ensemble_last_response.md";
     const filePath = cwd ? `${cwd}/${filename}` : filename;
     writeFileSync(filePath, text, "utf-8");
 
@@ -397,7 +397,7 @@ export default function ensembleExtension(pi: ExtensionAPI) {
           });
           
           // Notify the user upon closing the custom overlay
-          ctx.ui.notify("Answer copied to clipboard & saved to .ensemble_last_response.md", "success");
+          ctx.ui.notify("Answer copied to clipboard & saved to ensemble_last_response.md", "success");
         } else {
           console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
         }
