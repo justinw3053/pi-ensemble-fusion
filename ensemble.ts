@@ -381,7 +381,8 @@ export default function ensembleExtension(pi: ExtensionAPI) {
           await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: any) => {
             return {
               handleInput(data: string) {
-                if (data === "q" || data === "\x1b" || data === "\r") {
+                // Only close on 'q' or 'ESC'. Avoid "\r" (Enter) to prevent trailing Enter keypress from closing the overlay instantly!
+                if (data === "q" || data === "\x1b" || data === "\u001b") {
                   done();
                 }
               },
@@ -396,7 +397,7 @@ export default function ensembleExtension(pi: ExtensionAPI) {
 
                 const border = "═".repeat(Math.min(width, 80));
                 const header = theme.bold(theme.fg("accent", `🌟 Ensemble Master Answer (${strategy}) 🌟`));
-                const footer = theme.fg("dim", `[Press 'q', ESC, or Enter to return to chat]`);
+                const footer = theme.fg("dim", `[Press 'q' or ESC to return to chat]`);
                 
                 const finalLines = [
                   border,
