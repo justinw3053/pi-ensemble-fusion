@@ -276,9 +276,42 @@ Provide your final master synthesis below.
       ctx.ui.notify(`Initializing Ensemble Pipeline (${strategy} mode)...`);
       try {
         const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg));
-        ctx.ui.print(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
+        
+        if (ctx.hasUI) {
+          const lines = result.split("\n");
+          await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: any) => {
+            return {
+              handleInput(data: string) {
+                if (data === "q" || data === "\x1b" || data === "\r") {
+                  done();
+                }
+              },
+              render(width: number): string[] {
+                const border = "═".repeat(Math.min(width, 80));
+                const header = theme.bold(theme.fg("accent", `🌟 Ensemble Master Answer (${strategy}) 🌟`));
+                const footer = theme.fg("dim", `[Press 'q', ESC, or Enter to return to chat]`);
+                return [
+                  border,
+                  header,
+                  border,
+                  ...lines,
+                  border,
+                  footer,
+                  border
+                ];
+              },
+              invalidate() {}
+            };
+          });
+        } else {
+          console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
+        }
       } catch (error: any) {
-        ctx.ui.print(`\n❌ Error: ${error.message}\n`);
+        if (ctx.hasUI) {
+          ctx.ui.notify(`Error: ${error.message}`, "error");
+        } else {
+          console.error(`\n❌ Error: ${error.message}\n`);
+        }
       }
     }
   });
