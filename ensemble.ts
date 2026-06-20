@@ -1,6 +1,42 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
+import { writeFileSync, appendFileSync, existsSync, readFileSync } from "fs";
+
+// Helper to copy text to system clipboard on macOS
+function copyToClipboard(text: string) {
+  if (process.platform === "darwin") {
+    try {
+      const proc = spawn("pbcopy");
+      proc.stdin.write(text);
+      proc.stdin.end();
+    } catch (e) {
+      // Ignore copy errors silently
+    }
+  }
+}
+
+// Helper to save result to workspace and add to gitignore
+function saveToWorkspace(text: string, cwd: string) {
+  try {
+    const filename = ".ensemble_last_response.md";
+    const filePath = cwd ? `${cwd}/${filename}` : filename;
+    writeFileSync(filePath, text, "utf-8");
+
+    // Check if gitignore exists and add filename if not present
+    const gitignorePath = cwd ? `${cwd}/.gitignore` : ".gitignore";
+    if (existsSync(gitignorePath)) {
+      const gitignore = readFileSync(gitignorePath, "utf-8");
+      if (!gitignore.includes(filename)) {
+        appendFileSync(gitignorePath, `\n${filename}\n`, "utf-8");
+      }
+    } else {
+      writeFileSync(gitignorePath, `${filename}\n`, "utf-8");
+    }
+  } catch (e) {
+    // Ignore workspace saving errors silently
+  }
+}
 
 // Configurable models via environment variables or default fallbacks
 const MODEL_GEN_A = process.env.ENSEMBLE_GEN_A || "qwen3.6:27b-mlx";
@@ -317,6 +353,10 @@ export default function ensembleExtension(pi: ExtensionAPI) {
       try {
         const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg));
         
+        // Save to workspace and copy to system clipboard
+        copyToClipboard(result);
+        saveToWorkspace(result, ctx.cwd);
+
         if (ctx.hasUI) {
           const lines = result.split("\n");
           await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: any) => {
@@ -355,6 +395,9 @@ export default function ensembleExtension(pi: ExtensionAPI) {
               invalidate() {}
             };
           });
+          
+          // Notify the user upon closing the custom overlay
+          ctx.ui.notify("Answer copied to clipboard & saved to .ensemble_last_response.md", "success");
         } else {
           console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
         }
