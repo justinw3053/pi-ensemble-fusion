@@ -202,7 +202,8 @@ Provide your final master synthesis below.
 
       // If no prompt was provided, ask the user interactively
       if (!prompt) {
-        prompt = (await ctx.ui.ask("What is your complex question for the ensemble?")).trim();
+        const answer = await ctx.ui.editor("What is your complex question for the ensemble?");
+        prompt = (answer || "").trim();
         if (!prompt) return;
 
         // Ask for strategy choice interactively
