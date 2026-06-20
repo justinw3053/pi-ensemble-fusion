@@ -375,8 +375,51 @@ export default function ensembleExtension(pi: ExtensionAPI) {
           }
         });
 
-        // 4. Notify completion
-        ctx.ui.notify("Answer added to chat, copied to clipboard & saved!", "success");
+        // 4. Display the fullscreen TUI overlay for reading if in interactive mode
+        if (ctx.hasUI) {
+          const lines = result.split("\n");
+          await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: any) => {
+            return {
+              handleInput(data: string) {
+                if (data === "q" || data === "\x1b" || data === "\r") {
+                  done();
+                }
+              },
+              render(width: number): string[] {
+                const maxLineWidth = width - 4; // Margin padding
+                const wrappedLines: string[] = [];
+
+                lines.forEach(rawLine => {
+                  const wrapped = wrapLine(rawLine, maxLineWidth);
+                  wrappedLines.push(...wrapped);
+                });
+
+                const border = "═".repeat(Math.min(width, 80));
+                const header = theme.bold(theme.fg("accent", `🌟 Ensemble Master Answer (${strategy}) 🌟`));
+                const footer = theme.fg("dim", `[Press 'q', ESC, or Enter to return to chat]`);
+                
+                const finalLines = [
+                  border,
+                  header,
+                  border,
+                  ...wrappedLines,
+                  border,
+                  footer,
+                  border
+                ];
+
+                // Defensively truncate every line to width - 1 to guarantee zero TUI crashes
+                return finalLines.map(line => line.substring(0, width - 1));
+              },
+              invalidate() {}
+            };
+          });
+
+          // Notify the user upon closing the custom overlay
+          ctx.ui.notify("Answer copied to clipboard, saved & added to chat history!", "success");
+        } else {
+          console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
+        }
       } catch (error: any) {
         if (ctx.hasUI) {
           ctx.ui.notify(`Error: ${error.message}`, "error");
