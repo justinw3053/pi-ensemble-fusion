@@ -93,43 +93,44 @@ function runGeminiJudge(prompt: string): Promise<string> {
 // Real-time progress bar and spinner animator
 class ProgressLoader {
   private intervalId: any = null;
-  private currentStep = 0;
   private currentMsg = "";
   private spinnerIndex = 0;
   private spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  private pct = 0;
+  private targetCap = 0;
 
   constructor(private notify: (msg: string) => void) {}
 
   public start() {
-    this.currentStep = 1;
-    this.currentMsg = "Preparing ensemble...";
+    this.pct = 5;
+    this.targetCap = 45; // Default cap for first phase (Ollama generation)
+    this.currentMsg = "Initializing pipeline...";
+    
     this.intervalId = setInterval(() => {
       const spinner = this.spinnerFrames[this.spinnerIndex % this.spinnerFrames.length];
       this.spinnerIndex++;
       
-      let progressPct = 0;
-      let bar = "░░░░░";
-      if (this.currentStep === 1) {
-        progressPct = 15;
-        bar = "█░░░░";
-      } else if (this.currentStep === 2) {
-        progressPct = 45;
-        bar = "███░░";
-      } else if (this.currentStep === 3) {
-        progressPct = 80;
-        bar = "████░";
-      } else if (this.currentStep === 4) {
-        progressPct = 100;
-        bar = "█████";
+      // Gradually tick up towards the current phase's cap to show active progress
+      if (this.pct < this.targetCap) {
+        this.pct += 1;
       }
+      
+      // Calculate bar slots based on percentage (1 slot = 10%)
+      const completedSlots = Math.floor(this.pct / 10);
+      const remainingSlots = 10 - completedSlots;
+      const bar = "█".repeat(completedSlots) + "░".repeat(remainingSlots);
 
-      this.notify(`${spinner} [${bar}] ${progressPct}% | ${this.currentMsg}`);
-    }, 100);
+      this.notify(`${spinner} [${bar}] ${this.pct}% | ${this.currentMsg}`);
+    }, 150);
   }
 
-  public setStep(step: number, msg: string) {
-    this.currentStep = step;
+  public setPhase(cap: number, msg: string) {
+    this.targetCap = cap;
     this.currentMsg = msg;
+    // Boost percentage if it is behind the new phase boundary
+    if (this.pct < cap - 25) {
+      this.pct = cap - 25;
+    }
   }
 
   public stop(success: boolean) {
@@ -137,7 +138,7 @@ class ProgressLoader {
       clearInterval(this.intervalId);
     }
     const finalSpinner = success ? "✓" : "❌";
-    const finalBar = success ? "█████" : "░░░░░";
+    const finalBar = success ? "██████████" : "░░░░░░░░░░";
     const finalPct = success ? 100 : 0;
     this.notify(`${finalSpinner} [${finalBar}] ${finalPct}% | ${success ? "Ensemble processing complete!" : "Ensemble processing failed."}`);
   }
@@ -186,14 +187,12 @@ export default function ensembleExtension(pi: ExtensionAPI) {
     loader.start();
 
     try {
-      loader.setStep(2, `Querying generators (${MODEL_GEN_A} & ${MODEL_GEN_B}) concurrently...`);
+      loader.setPhase(45, `Querying generators (${MODEL_GEN_A} & ${MODEL_GEN_B}) concurrently...`);
       // 1. Fire parallel calls to Ollama
       const [genAResponse, genBResponse] = await Promise.all([
         queryOllama(MODEL_GEN_A, systemPrompt, prompt).catch(e => `[Error ${MODEL_GEN_A}]: ${e.message}`),
         queryOllama(MODEL_GEN_B, systemPrompt, prompt).catch(e => `[Error ${MODEL_GEN_B}]: ${e.message}`)
       ]);
-
-      loader.setStep(3, `Formatting arbitration context (strategy: ${strategy})...`);
 
       // 2. Format the synthesis/judging prompt for the Judge based on the selected strategy
       let judgePrompt = "";
@@ -266,7 +265,7 @@ export default function ensembleExtension(pi: ExtensionAPI) {
       `;
       }
 
-      loader.setStep(4, `Invoking ${MODEL_JUDGE} for final synthesis...`);
+      loader.setPhase(95, `Invoking ${MODEL_JUDGE} for final synthesis...`);
 
       // 3. Execute the Gemini CLI Judge
       const result = await runGeminiJudge(judgePrompt);
