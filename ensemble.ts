@@ -107,6 +107,36 @@ class ProgressLoader {
   }
 }
 
+// Helper to wrap a single long line into multiple lines fitting the terminal width
+function wrapLine(line: string, maxWidth: number): string[] {
+  if (line.length <= maxWidth) return [line];
+  
+  const words = line.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    if ((currentLine + (currentLine ? " " : "") + word).length <= maxWidth) {
+      currentLine = currentLine ? `${currentLine} ${word}` : word;
+    } else {
+      if (currentLine) lines.push(currentLine);
+      if (word.length > maxWidth) {
+        // Force split extremely long words
+        let remaining = word;
+        while (remaining.length > maxWidth) {
+          lines.push(remaining.substring(0, maxWidth));
+          remaining = remaining.substring(maxWidth);
+        }
+        currentLine = remaining;
+      } else {
+        currentLine = word;
+      }
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
 export default function ensembleExtension(pi: ExtensionAPI) {
   // System prompt for generators
   const systemPrompt = "You are an expert technical advisor. Provide a highly detailed, technically rigorous, and accurate answer to the user's question. Focus on correctness and avoid fluff.";
@@ -287,18 +317,30 @@ Provide your final master synthesis below.
                 }
               },
               render(width: number): string[] {
+                const maxLineWidth = width - 4; // Margin padding
+                const wrappedLines: string[] = [];
+
+                lines.forEach(rawLine => {
+                  const wrapped = wrapLine(rawLine, maxLineWidth);
+                  wrappedLines.push(...wrapped);
+                });
+
                 const border = "═".repeat(Math.min(width, 80));
                 const header = theme.bold(theme.fg("accent", `🌟 Ensemble Master Answer (${strategy}) 🌟`));
                 const footer = theme.fg("dim", `[Press 'q', ESC, or Enter to return to chat]`);
-                return [
+                
+                const finalLines = [
                   border,
                   header,
                   border,
-                  ...lines,
+                  ...wrappedLines,
                   border,
                   footer,
                   border
                 ];
+
+                // Defensively truncate every line to width - 1 to guarantee zero TUI crashes
+                return finalLines.map(line => line.substring(0, width - 1));
               },
               invalidate() {}
             };
