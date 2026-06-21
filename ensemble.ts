@@ -229,9 +229,31 @@ function wrapLine(line: string, maxWidth: number): string[] {
   return lines;
 }
 
+// Memory state for active session context handoff
+let lastEnsemblePrompt = "";
+let lastEnsembleAnswer = "";
+
 export default function ensembleExtension(pi: ExtensionAPI) {
   // System prompt for generators
   const systemPrompt = "You are an expert technical advisor. Provide a highly detailed, technically rigorous, and accurate answer to the user's question. Focus on correctness and avoid fluff.";
+
+  // Register lifecycle hook to inject ensemble context into active model's memory
+  pi.on("before_agent_start", async (event) => {
+    if (!lastEnsembleAnswer) return undefined;
+
+    const contextBlock = `
+
+## Active Context: Latest MoA Ensemble Response
+The user recently queried our Mixture-of-Agents ensemble. Use this response as active context for any follow-up questions from the user, acting as if you wrote the response yourself.
+- **Original Prompt:** "${lastEnsemblePrompt}"
+- **Ensemble Master Answer:**
+${lastEnsembleAnswer}
+`;
+
+    return {
+      systemPrompt: event.systemPrompt + contextBlock
+    };
+  });
 
   const runPipeline = async (
     prompt: string, 
@@ -328,6 +350,11 @@ export default function ensembleExtension(pi: ExtensionAPI) {
 
       // 3. Execute the Gemini CLI Judge
       const result = await runGeminiJudge(judgePrompt);
+      
+      // Update cache for active session handoff
+      lastEnsemblePrompt = prompt;
+      lastEnsembleAnswer = result;
+
       loader.stop(true);
       return result;
     } catch (error) {
