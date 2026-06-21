@@ -454,12 +454,51 @@ ${lastEnsembleAnswer}
       try {
         const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg), ctx.cwd);
         
-        // Print permanently to standard terminal stdout scrollback
-        console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
-        console.log(`\x1b[2m[Press any key to return to chat...]\x1b[0m`);
-        
-        // Suspend TUI and block on keypress so you can read and scroll
-        await waitForKeypress();
+        if (ctx.hasUI) {
+          const lines = result.split("\n");
+          await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: any) => {
+            return {
+              handleInput(data: string) {
+                // Only close on 'q' or 'ESC'. Avoid "\r" (Enter) to prevent trailing Enter keypress from closing the overlay instantly!
+                if (data === "q" || data === "\x1b" || data === "\u001b") {
+                  done();
+                }
+              },
+              render(width: number): string[] {
+                const maxLineWidth = width - 4; // Margin padding
+                const wrappedLines: string[] = [];
+
+                lines.forEach(rawLine => {
+                  const wrapped = wrapLine(rawLine, maxLineWidth);
+                  wrappedLines.push(...wrapped);
+                });
+
+                const border = "═".repeat(Math.min(width, 80));
+                const header = theme.bold(theme.fg("accent", `🌟 Ensemble Master Answer (${strategy}) 🌟`));
+                const footer = theme.fg("dim", `[Press 'q' or ESC to return to chat]`);
+                
+                const finalLines = [
+                  border,
+                  header,
+                  border,
+                  ...wrappedLines,
+                  border,
+                  footer,
+                  border
+                ];
+
+                // Defensively truncate every line to width - 1 to guarantee zero TUI crashes
+                return finalLines.map(line => line.substring(0, width - 1));
+              },
+              invalidate() {}
+            };
+          });
+
+          // Notify completion
+          ctx.ui.notify("Answer copied to clipboard, saved & added to memory context!", "success");
+        } else {
+          console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
+        }
       } catch (error: any) {
         if (ctx.hasUI) {
           ctx.ui.notify(`Error: ${error.message}`, "error");
