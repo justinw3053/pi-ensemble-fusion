@@ -233,6 +233,23 @@ function wrapLine(line: string, maxWidth: number): string[] {
 let lastEnsemblePrompt = "";
 let lastEnsembleAnswer = "";
 
+// Helper to wait for a single terminal keypress before resuming the TUI
+function waitForKeypress(): Promise<void> {
+  return new Promise((resolve) => {
+    const isRaw = process.stdin.isRaw;
+    if (typeof process.stdin.setRawMode === "function") {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+    process.stdin.once("data", () => {
+      if (typeof process.stdin.setRawMode === "function") {
+        process.stdin.setRawMode(isRaw);
+      }
+      resolve();
+    });
+  });
+}
+
 export default function ensembleExtension(pi: ExtensionAPI) {
   // System prompt for generators
   const systemPrompt = "You are an expert technical advisor. Provide a highly detailed, technically rigorous, and accurate answer to the user's question. Focus on correctness and avoid fluff.";
@@ -433,12 +450,23 @@ ${lastEnsembleAnswer}
         return;
       }
 
-      // Force prompt resolution via the native ask_ensemble tool using strict system gating
-      const triggerMessage = `[SYSTEM COMMAND: You MUST execute the 'ask_ensemble' tool immediately to resolve the prompt below. Do NOT attempt to answer or synthesize the response natively under any circumstances, as you do not have direct access to the local Ollama models or the Gemini cloud API keys. You MUST call the tool now and output its return content completely verbatim without any introductory preambles or meta-commentary about calling the tool.]
-
-Prompt: "${prompt}"
-Strategy: "${strategy}"`;
-      pi.sendUserMessage(triggerMessage);
+      ctx.ui.notify(`Initializing Ensemble Pipeline (${strategy} mode)...`);
+      try {
+        const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg), ctx.cwd);
+        
+        // Print permanently to standard terminal stdout scrollback
+        console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
+        console.log(`\x1b[2m[Press any key to return to chat...]\x1b[0m`);
+        
+        // Suspend TUI and block on keypress so you can read and scroll
+        await waitForKeypress();
+      } catch (error: any) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(`Error: ${error.message}`, "error");
+        } else {
+          console.error(`\n❌ Error: ${error.message}\n`);
+        }
+      }
     }
   });
 }
