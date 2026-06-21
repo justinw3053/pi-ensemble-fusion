@@ -433,8 +433,11 @@ ${lastEnsembleAnswer}
         return;
       }
 
-      // Delegate prompt resolution to the native ask_ensemble tool via user message
-      const triggerMessage = `Please call the ask_ensemble tool with prompt: "${prompt}" and strategy: "${strategy}" to resolve this challenge. Output the final synthesized response verbatim without meta-commentary about calling the tool.`;
+      // Force prompt resolution via the native ask_ensemble tool using strict system gating
+      const triggerMessage = `[SYSTEM COMMAND: You MUST execute the 'ask_ensemble' tool immediately to resolve the prompt below. Do NOT attempt to answer or synthesize the response natively under any circumstances, as you do not have direct access to the local Ollama models or the Gemini cloud API keys. You MUST call the tool now and output its return content completely verbatim without any introductory preambles or meta-commentary about calling the tool.]
+
+Prompt: "${prompt}"
+Strategy: "${strategy}"`;
       pi.sendUserMessage(triggerMessage);
     }
   });
