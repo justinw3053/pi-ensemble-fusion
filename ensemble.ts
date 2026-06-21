@@ -100,17 +100,24 @@ const MODEL_JUDGE = process.env.ENSEMBLE_JUDGE || "gemini-3.1-pro-preview";
 
 // Helper to query local Ollama HTTP endpoints
 async function queryOllama(model: string, systemPrompt: string, userPrompt: string): Promise<string> {
+  const payload: any = {
+    model: model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    temperature: 0.7
+  };
+
+  // If ENSEMBLE_UNLOAD_GENERATORS is set, eject from memory instantly upon finishing
+  if (process.env.ENSEMBLE_UNLOAD_GENERATORS === "true") {
+    payload.keep_alive = 0;
+  }
+
   const response = await fetch("http://localhost:11434/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.7
-    })
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
