@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
-import { writeFileSync, appendFileSync, existsSync, readFileSync } from "fs";
+import { writeFileSync, appendFileSync, existsSync, readFileSync, readdirSync, statSync } from "fs";
+import { join } from "path";
 
 // Helper to copy text to system clipboard on macOS
 function copyToClipboard(text: string) {
@@ -36,6 +37,60 @@ function saveToWorkspace(text: string, cwd: string) {
   } catch (e: any) {
     console.error(`[Ensemble Save Error]: ${e.message}`);
   }
+}
+
+// Automatically injects local file trees and file contents mentioned in the prompt
+function hydrateWorkspaceContext(prompt: string, cwd: string, notify: (msg: string) => void): string {
+  let hydratedPrompt = prompt;
+  try {
+    if (!cwd) return hydratedPrompt;
+
+    const items = readdirSync(cwd);
+    const files: string[] = [];
+    const dirs: string[] = [];
+    const matchedFiles: string[] = [];
+
+    for (const item of items) {
+      if (item.startsWith(".") || item === "node_modules" || item === "dist" || item === "package-lock.json" || item === "ensemble_last_response.md") continue;
+      const fullPath = join(cwd, item);
+      const stat = statSync(fullPath);
+      
+      if (stat.isDirectory()) {
+        dirs.push(item);
+      } else {
+        files.push(item);
+        
+        // If user prompt mentions this filename explicitly (case-insensitive check)
+        if (prompt.toLowerCase().includes(item.toLowerCase())) {
+          const content = readFileSync(fullPath, "utf-8");
+          // Cap file read size to 15k characters to keep local context window light
+          const truncatedContent = content.length > 15000 
+            ? content.substring(0, 15000) + "\n... [content truncated to fit token limits] ..." 
+            : content;
+          
+          hydratedPrompt += `\n\n[Workspace File Content: ${item}]\n\`\`\`\n${truncatedContent}\n\`\`\`\n`;
+          matchedFiles.push(item);
+        }
+      }
+    }
+
+    // Always append the workspace directory map so models understand your directory tree
+    let treeContext = `\n\n[Workspace Directory Tree Map]\n`;
+    treeContext += `Working Directory: ${cwd}\n`;
+    if (dirs.length > 0) treeContext += `Directories: ${dirs.join(", ")}\n`;
+    if (files.length > 0) treeContext += `Files: ${files.join(", ")}\n`;
+    
+    hydratedPrompt += treeContext;
+
+    if (matchedFiles.length > 0) {
+      notify(`Injected contents of files: ${matchedFiles.join(", ")}`);
+    } else {
+      notify(`Injected local workspace file tree context.`);
+    }
+  } catch (e) {
+    // Fail silently, return original prompt
+  }
+  return hydratedPrompt;
 }
 
 // Configurable models via environment variables or default fallbacks
@@ -181,17 +236,21 @@ export default function ensembleExtension(pi: ExtensionAPI) {
   const runPipeline = async (
     prompt: string, 
     strategy: "synthesize" | "best_of_n", 
-    notify: (msg: string) => void
+    notify: (msg: string) => void,
+    cwd?: string
   ): Promise<string> => {
     const loader = new ProgressLoader(notify);
     loader.start();
 
     try {
+      loader.setPhase(15, "Hydrating local workspace context...");
+      const hydratedPrompt = hydrateWorkspaceContext(prompt, cwd || "", (msg) => loader.setPhase(15, msg));
+
       loader.setPhase(45, `Querying generators (${MODEL_GEN_A} & ${MODEL_GEN_B}) concurrently...`);
-      // 1. Fire parallel calls to Ollama
+      // 1. Fire parallel calls to Ollama with the fully hydrated context prompt
       const [genAResponse, genBResponse] = await Promise.all([
-        queryOllama(MODEL_GEN_A, systemPrompt, prompt).catch(e => `[Error ${MODEL_GEN_A}]: ${e.message}`),
-        queryOllama(MODEL_GEN_B, systemPrompt, prompt).catch(e => `[Error ${MODEL_GEN_B}]: ${e.message}`)
+        queryOllama(MODEL_GEN_A, systemPrompt, hydratedPrompt).catch(e => `[Error ${MODEL_GEN_A}]: ${e.message}`),
+        queryOllama(MODEL_GEN_B, systemPrompt, hydratedPrompt).catch(e => `[Error ${MODEL_GEN_B}]: ${e.message}`)
       ]);
 
       // 2. Format the synthesis/judging prompt for the Judge based on the selected strategy
@@ -212,8 +271,8 @@ export default function ensembleExtension(pi: ExtensionAPI) {
       - Output ONLY the verbatim text of the winning model's response.
       - NEVER state or imply that you have performed real-time terminal audits, active directory scans, or file system actions yourself.
 
-      [Original User Prompt]:
-      ${prompt}
+      [Original User Prompt (Hydrated Workspace Context)]:
+      ${hydratedPrompt}
 
       ---
 
@@ -246,8 +305,8 @@ export default function ensembleExtension(pi: ExtensionAPI) {
       - Stick strictly to synthesizing the content provided in Expert Response A and Expert Response B. Do not make up imaginary facts or inject external environment variables/paths (such as referring to '/content' or non-existent notebooks) that are not explicitly present in the provided responses.
       - Maintain an objective, professional, direct technical advisor tone. Eliminate conversational preambles, introductory brags, meta-commentary, or references to your own system capabilities. Present the final output directly.
 
-      [Original User Prompt]:
-      ${prompt}
+      [Original User Prompt (Hydrated Workspace Context)]:
+      ${hydratedPrompt}
 
       ---
 
@@ -292,10 +351,10 @@ export default function ensembleExtension(pi: ExtensionAPI) {
         default: "synthesize" 
       }))
     }),
-    async execute(_id, params) {
+    async execute(_id, params, signal, onUpdate, ctx) {
       const strategy = params.strategy || "synthesize";
       try {
-        const result = await runPipeline(params.prompt, strategy, (msg) => console.log(`[Ensemble]: ${msg}`));
+        const result = await runPipeline(params.prompt, strategy, (msg) => console.log(`[Ensemble]: ${msg}`), ctx?.cwd);
         return {
           content: [
             {
@@ -350,7 +409,7 @@ export default function ensembleExtension(pi: ExtensionAPI) {
 
       ctx.ui.notify(`Initializing Ensemble Pipeline (${strategy} mode)...`);
       try {
-        const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg));
+        const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg), ctx.cwd);
         
         // 1. Save to workspace and copy to system clipboard
         copyToClipboard(result);
