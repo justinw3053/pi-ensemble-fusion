@@ -109,8 +109,8 @@ async function queryOllama(model: string, systemPrompt: string, userPrompt: stri
     temperature: 0.7
   };
 
-  // If ENSEMBLE_UNLOAD_GENERATORS is set, eject from memory instantly upon finishing
-  if (process.env.ENSEMBLE_UNLOAD_GENERATORS === "true") {
+  // Always eject generators from memory instantly unless ENSEMBLE_UNLOAD_GENERATORS is explicitly set to "false"
+  if (process.env.ENSEMBLE_UNLOAD_GENERATORS !== "false") {
     payload.keep_alive = 0;
   }
 
