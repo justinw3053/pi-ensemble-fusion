@@ -355,6 +355,10 @@ ${lastEnsembleAnswer}
       lastEnsemblePrompt = prompt;
       lastEnsembleAnswer = result;
 
+      // Copy to system clipboard and save to workspace visible cache
+      copyToClipboard(result);
+      saveToWorkspace(result, cwd || "");
+
       loader.stop(true);
       return result;
     } catch (error) {
@@ -406,10 +410,10 @@ ${lastEnsembleAnswer}
 
   // 2. Register Slash Command
   pi.registerCommand("ensemble", {
-    description: "Ask a question to the local/cloud ensemble pipeline directly. Options: --strategy [synthesize|best_of_n]",
+    description: "Queries the Mixture-of-Agents ensemble natively inline in your chat thread. Options: --strategy [synthesize|best_of_n]",
     handler: async (args: string, ctx) => {
       let prompt = (args || "").trim();
-      let strategy: "synthesize" | "best_of_n" = "synthesize";
+      let strategy = "synthesize";
 
       // Parse --strategy flag if present
       if (prompt.includes("--strategy")) {
@@ -417,73 +421,21 @@ ${lastEnsembleAnswer}
         if (match) {
           const val = match[1].toLowerCase();
           if (val === "best_of_n" || val === "synthesize") {
-            strategy = val as any;
+            strategy = val;
           }
           prompt = prompt.replace(/--strategy\s+\S+/, "").trim();
         }
       }
 
-      // If no prompt was provided, ask the user interactively
+      // If no prompt was provided, notify usage
       if (!prompt) {
-        const answer = await ctx.ui.editor("What is your complex question for the ensemble?");
-        prompt = (answer || "").trim();
-        if (!prompt) return;
-
-        // Ask for strategy choice interactively
-        const confirmBestOfN = await ctx.ui.confirm("Do you want to use 'best_of_n' strategy (returns winning response verbatim)? No defaults to 'synthesize'.");
-        strategy = confirmBestOfN ? "best_of_n" : "synthesize";
+        ctx.ui.notify("Usage: /ensemble <your prompt> [--strategy synthesize|best_of_n]", "warning");
+        return;
       }
 
-      ctx.ui.notify(`Initializing Ensemble Pipeline (${strategy} mode)...`);
-      try {
-        const result = await runPipeline(prompt, strategy, (msg) => ctx.ui.notify(msg), ctx.cwd);
-        
-        // 1. Save to workspace and copy to system clipboard
-        copyToClipboard(result);
-        saveToWorkspace(result, ctx.cwd);
-
-        const userMessageEntry = {
-          role: "user" as const,
-          content: [{ type: "text" as const, text: prompt }],
-          timestamp: Date.now()
-        };
-
-        const assistantMessageEntry = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: result }],
-          model: `ensemble/${MODEL_JUDGE}`,
-          timestamp: Date.now()
-        };
-
-        // 2. Append User Prompt & Assistant Answer to append-only log on disk
-        pi.appendEntry("message", { message: userMessageEntry });
-        pi.appendEntry("message", { message: assistantMessageEntry });
-
-        // 3. Directly inject into the live active in-memory session manager array to force an instant visual update!
-        if (ctx.hasUI && ctx.sessionManager && typeof ctx.sessionManager.getEntries === "function") {
-          try {
-            const entries = ctx.sessionManager.getEntries();
-            if (Array.isArray(entries)) {
-              entries.push({ type: "message", message: userMessageEntry });
-              entries.push({ type: "message", message: assistantMessageEntry });
-            }
-          } catch (e) {
-            // Fallback silently if getEntries fails
-          }
-        }
-
-        if (ctx.hasUI) {
-          ctx.ui.notify("Answer added to chat, copied to clipboard & saved!", "success");
-        } else {
-          console.log(`\n=== 🌟 Ensemble Master Answer (${strategy}) ===\n\n${result}\n`);
-        }
-      } catch (error: any) {
-        if (ctx.hasUI) {
-          ctx.ui.notify(`Error: ${error.message}`, "error");
-        } else {
-          console.error(`\n❌ Error: ${error.message}\n`);
-        }
-      }
+      // Delegate prompt resolution to the native ask_ensemble tool via user message
+      const triggerMessage = `Please call the ask_ensemble tool with prompt: "${prompt}" and strategy: "${strategy}" to resolve this challenge. Output the final synthesized response verbatim without meta-commentary about calling the tool.`;
+      pi.sendUserMessage(triggerMessage);
     }
   });
 }
